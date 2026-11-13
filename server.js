@@ -138,6 +138,37 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// AI 诊断(不泄露密钥):报告配置状态与一次最小化调用结果
+app.get('/debug/ai', async (req, res) => {
+  const key = process.env.AI_API_KEY || '';
+  const info = {
+    hasKey: !!key,
+    keyLength: key.length,
+    keyPrefix: key ? key.slice(0, 4) + '****' : null,
+    model: process.env.AI_MODEL || '(未设置,默认glm-4-flash)',
+    fallback: process.env.AI_FALLBACK_MODEL || '(未设置)',
+    baseUrl: process.env.AI_BASE_URL || '(默认)'
+  };
+  if (!key) {
+    info.test = '跳过:AI_API_KEY 为空,Railway Variables 未生效';
+    return res.json(info);
+  }
+  try {
+    const axios = require('axios');
+    const { data } = await axios.post(
+      `${info.baseUrl}/chat/completions`,
+      { model: process.env.AI_MODEL, messages: [{ role: 'user', content: '回复OK' }], max_tokens: 5 },
+      { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` }, timeout: 25000 }
+    );
+    info.test = '调用成功: ' + (data.choices?.[0]?.message?.content || '(空)');
+  } catch (e) {
+    let errText = e.response ? `HTTP ${e.response.status} ${JSON.stringify(e.response.data)}` : e.message;
+    errText = errText.replace(key, '****');
+    info.test = '调用失败: ' + errText.substring(0, 300);
+  }
+  res.json(info);
+});
+
 // 启动定时任务:每天早上 8:00 自动生成
 const CRON_EXPRESSION = '0 8 * * *'; // 每天 8:00
 console.log(`[定时任务] 已设置: ${CRON_EXPRESSION} (每天早上8点)`);
